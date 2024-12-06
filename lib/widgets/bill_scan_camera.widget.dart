@@ -172,12 +172,28 @@ class BillScanCameraWidgetState extends State<BillScanCameraWidget> {
 
     // get image format
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
+
+    if (Platform.isAndroid && format == InputImageFormat.yuv_420_888) {
+      Uint8List nv21Data = convertYUV420ToNV21(image);
+
+      return InputImage.fromBytes(
+        bytes: nv21Data,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation,
+          format: InputImageFormat.nv21,
+          bytesPerRow: image.width,
+        ),
+      );
+    }
     // validate format depending on platform
     // only supported formats:
     // * nv21 for Android
     // * bgra8888 for iOS
     if (format == null ||
-        (Platform.isAndroid && format != InputImageFormat.nv21) ||
+        (Platform.isAndroid &&
+            (format != InputImageFormat.nv21 ||
+                format != InputImageFormat.yuv_420_888)) ||
         (Platform.isIOS && format != InputImageFormat.bgra8888)) return null;
 
     // since format is constraint to nv21 or bgra8888, both only have one plane
@@ -194,5 +210,56 @@ class BillScanCameraWidgetState extends State<BillScanCameraWidget> {
         bytesPerRow: plane.bytesPerRow, // used only in iOS
       ),
     );
+  }
+
+  Uint8List convertYUV420ToNV21(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+
+    // Planes from CameraImage
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+
+    // Buffers from Y, U, and V planes
+    final yBuffer = yPlane.bytes;
+    final uBuffer = uPlane.bytes;
+    final vBuffer = vPlane.bytes;
+
+    // Total number of pixels in NV21 format
+    final numPixels = width * height + (width * height ~/ 2);
+    final nv21 = Uint8List(numPixels);
+
+    // Y (Luma) plane metadata
+    int idY = 0;
+    int idUV = width * height; // Start UV after Y plane
+    final uvWidth = width ~/ 2;
+    final uvHeight = height ~/ 2;
+
+    // Strides and pixel strides for Y and UV planes
+    final yRowStride = yPlane.bytesPerRow;
+    final yPixelStride = yPlane.bytesPerPixel ?? 1;
+    final uvRowStride = uPlane.bytesPerRow;
+    final uvPixelStride = uPlane.bytesPerPixel ?? 2;
+
+    // Copy Y (Luma) channel
+    for (int y = 0; y < height; ++y) {
+      final yOffset = y * yRowStride;
+      for (int x = 0; x < width; ++x) {
+        nv21[idY++] = yBuffer[yOffset + x * yPixelStride];
+      }
+    }
+
+    // Copy UV (Chroma) channels in NV21 format (YYYYVU interleaved)
+    for (int y = 0; y < uvHeight; ++y) {
+      final uvOffset = y * uvRowStride;
+      for (int x = 0; x < uvWidth; ++x) {
+        final bufferIndex = uvOffset + (x * uvPixelStride);
+        nv21[idUV++] = vBuffer[bufferIndex]; // V channel
+        nv21[idUV++] = uBuffer[bufferIndex]; // U channel
+      }
+    }
+
+    return nv21;
   }
 }
