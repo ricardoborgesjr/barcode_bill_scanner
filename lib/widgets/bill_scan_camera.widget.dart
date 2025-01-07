@@ -91,7 +91,7 @@ class BillScanCameraWidgetState extends State<BillScanCameraWidget> {
     final camera = cameras[_cameraIndex ?? 0];
     cameraController = CameraController(
       camera,
-      ResolutionPreset.high,
+      Platform.isAndroid ? ResolutionPreset.high : ResolutionPreset.ultraHigh,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
           ? ImageFormatGroup.nv21
